@@ -1,12 +1,9 @@
-This is a PHP port of Ryan Pearl's ([@rpearl](https://github.com/rpearl/python-zxcvbn)) 
-python-zxcvbn port which itself is a port of Dan Wheeler's ([@lowe](https://github.com/lowe/zxcvbn)) zxcvbn, 
-which is a JavaScript password strength generator. 
+This is a PHP port of Dan Wheeler's ([@lowe](https://github.com/lowe/zxcvbn)) zxcvbn, 
+which is a JavaScript password strength generator.
 
-Refer to the original JavaScript (well, actually CoffeeScript) implementation 
-which can be found at: https://github.com/lowe/zxcvbn
+NB: You probably don't want to use this with production code, yet. Or without testing yourself. YMMV.
 
-NB: This is Quick 'n Dirty Port<sup>TM</sup> to PHP, as a starting point so I could 
-understand how zxcvbn worked. You probably don't want to use this with production code, yet.
+All tests are performed by comparing the output from php-zxcvbn to the output from the JavaScript implementation.
 
 To see it in action, run:
 `php test.php` 

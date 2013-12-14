@@ -36,7 +36,7 @@
             );
 
             if ( $diff ) $OK = FALSE;
-        }
+        };
 
         if ( $OK )
         {
@@ -45,7 +45,7 @@
         else
         {
             $fail +=1;
-        }
+        };
 
         echo 'OUTCOME: ' . ( $OK ? 'PASS' : 'FAIL' ) . PHP_EOL;
         echo '==========' . PHP_EOL;

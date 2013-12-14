@@ -1,7 +1,5 @@
 <?php
 
-#ini_set( 'precision', 17 );
-
 # Returns binomial_coefficiential coefficient (n choose k).
 # http://blog.plover.com/math/choose.html
 function binomial_coefficient( $n, $k )

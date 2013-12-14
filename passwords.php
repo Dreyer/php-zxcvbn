@@ -40,7 +40,7 @@ $passwords = array(
     array(
         'input' => 'coRrecth0rseba++ery9.23.2007staple$',
         'entropy' => 66.018,
-        'crack_time_seconds' => 3734821476714185,
+        'crack_time_seconds' => 3734821476714185.0,
         'crack_time_display' => 'centuries',
         'score' => 4
     ),

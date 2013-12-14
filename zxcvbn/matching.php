@@ -1,20 +1,52 @@
 <?php
 
-#namespace zxcbn\matching;
-
-$GRAPHS = array();
-$DICTIONARY_MATCHERS = array();
-
-function translate( $string, $chr_map )
+/*
+function empty( obj )
 {
-    $out = '';
+    return ( count( array_keys( $obj ) ) === 0 );
+};
+*/
 
-    foreach ( str_split( $string ) as $char )
+function extend( &$arr1, $arr2 )
+{
+    $arr1 = array_merge( $arr1, $arr2 );
+};
+
+function translate( $str, $chr_map )
+{
+    $results = array();
+
+    foreach ( str_split( $str ) as $chr )
     {
-        $out += ( isset( $char_map[$char] ) ? $char_map[$char] : $char );
+        $results[] = ( isset( $chr_map[$chr] ) ? $chr_map[$chr] : $chr );
     };
 
-    return $out;
+    return implode( '', $results );
+};
+
+# ------------------------------------------------------------------------------
+# omnimatch -- combine everything ----------------------------------------------
+# ------------------------------------------------------------------------------
+
+function omnimatch( $password )
+{
+    global $MATCHERS;
+
+    $matches = array();
+
+    foreach ( $MATCHERS as $matcher )
+    {
+        extend( $matches, $matcher( $password ) );
+    };
+
+    $compare_function = function( $match1, $match2 )
+    {
+        return ( $match1['i'] - $match2['i'] ) or ( $match1['j'] - $match2['j'] );
+    };
+
+    usort( $matches, $compare_function );
+
+    return $matches;
 };
 
 #-------------------------------------------------------------------------------
@@ -24,15 +56,15 @@ function translate( $string, $chr_map )
 function dictionary_match( $password, $ranked_dict )
 {
     $result = array();
-    $length = strlen( $password );
 
-    $pw_lower = strtolower( $password );
+    $len = strlen( $password );
+    $password_lower = strtolower( $password );
 
-    foreach ( range( 0, $length ) as $i )
+    for ( $i = 0; $i < $len; $i++ )
     {
-        foreach ( range( $i, $length ) as $j )
+        for ( $j = $i; $j < $len; $j++)
         {
-            $word = substr( $pw_lower, $i, $j + 1 );
+            $word = _slice( $password_lower, $i, $j + 1 );
 
             if ( isset( $ranked_dict[$word] ) )
             {
@@ -42,9 +74,9 @@ function dictionary_match( $password, $ranked_dict )
                     'pattern' => 'dictionary',
                     'i' => $i,
                     'j' => $j,
-                    'token' => substr( $password, $i, $j + 1 ),
+                    'token' => _slice( $password, $i, $j + 1 ),
                     'matched_word' => $word,
-                    'rank' => $rank,
+                    'rank' => $rank
                 );
             };
         };
@@ -53,13 +85,27 @@ function dictionary_match( $password, $ranked_dict )
     return $result;
 };
 
-function _build_dict_matcher( $dict_name, $ranked_dict )
+function build_ranked_dict( $unranked_list )
 {
+    $result = array();
+    $i = 1; # rank starts at 1, not 0
+
+    foreach ( $unranked_list as $word )
+    {
+        $result[$word] = $i;
+        $i += 1;
+    };
+
+    return $result;
+};
+
+function build_dict_matcher( $dict_name, $ranked_dict )
+{   
     return function( $password ) use ( $dict_name, $ranked_dict )
     {
         $matches = dictionary_match( $password, $ranked_dict );
-        
-        foreach ( $matches as $match )
+
+        foreach ( $matches as &$match )
         {
             $match['dictionary_name'] = $dict_name;
         };
@@ -68,119 +114,52 @@ function _build_dict_matcher( $dict_name, $ranked_dict )
     };
 };
 
-function _build_ranked_dict( $unranked_list )
-{
-    $result = array();
-    $i = 1;
-
-    foreach ( $unranked_list as $word )
-    {
-        $result[$word] = $i;
-        $i += 1;
-    };
-    
-    return $result;
-};
-
-function _load_frequency_lists()
-{
-    global $DICTIONARY_MATCHERS;
-
-    $data = file_get_contents( dirname( __FILE__ ) . '/generated/frequency_lists.json' );
-    $dicts = json_decode( $data, $assoc = TRUE );
-
-    foreach ( $dicts as $name => $wordlist )
-    {
-        $DICTIONARY_MATCHERS[] = _build_dict_matcher( $name, _build_ranked_dict( $wordlist ) );
-    };
-};
-
-function _load_adjacency_graphs()
-{
-    global $GRAPHS;
-
-    $data = file_get_contents( dirname( __FILE__ ) . '/generated/adjacency_graphs.json' );
-    $GRAPHS = json_decode( $data, $assoc = TRUE );
-};
-
-# on qwerty, 'g' has degree 6, being adjacent to 'ftyhbv'. '\' has degree 1.
-# this calculates the average over all keys.
-function _calc_average_degree( $graph )
-{
-    $average = 0.0;
-
-    foreach ( array_values( $graph ) as $neighbors )
-    {
-        foreach ( $neighbors as $n )
-        {
-            $list = array();
-
-            if ( ! is_null( $n ) )
-            {
-                $list[] = $n;
-            };
-
-            $average += count( $list );
-        };
-    };
-
-    $average /= count( $graph );
-    
-    return $average;
-};
-
-_load_frequency_lists();
-_load_adjacency_graphs();
-
-$KEYBOARD_AVERAGE_DEGREE = _calc_average_degree( $GRAPHS['qwerty'] );
-
-# slightly different for keypad/mac keypad, but close enough
-$KEYPAD_AVERAGE_DEGREE = _calc_average_degree( $GRAPHS['keypad'] );
-
-$KEYBOARD_STARTING_POSITIONS = count( $GRAPHS['qwerty'] );
-$KEYPAD_STARTING_POSITIONS = count( $GRAPHS['keypad'] );
-
 #-------------------------------------------------------------------------------
 # dictionary match with common l33t substitutions ------------------------------
 #-------------------------------------------------------------------------------
 
-$L33T_TABLE = array(
-  'a' => array( '4', '@' ),
-  'b' => array( '8' ),
-  'c' => array( '(', '{', '[', '<' ),
-  'e' => array( '3' ),
-  'g' => array( '6', '9' ),
-  'i' => array( '1', '!', '|' ),
-  'l' => array( '1', '|', '7' ),
-  'o' => array( '0' ),
-  's' => array( '$', '5' ),
-  't' => array( '+', '7' ),
-  'x' => array( '%' ),
-  'z' => array( '2' ),
+$l33t_table = array(
+    'a' => array( '4', '@' ),
+    'b' => array( '8' ),
+    'c' => array( '(', '{', '[', '<' ),
+    'e' => array( '3' ),
+    'g' => array( '6', '9' ),
+    'i' => array( '1', '!', '|' ),
+    'l' => array( '1', '|', '7' ),
+    'o' => array( '0' ),
+    's' => array( '$', '5' ),
+    't' => array( '+', '7' ),
+    'x' => array( '%' ),
+    'z' => array( '2' ),
 );
 
-# makes a pruned copy of L33T_TABLE that only includes password's possible substitutions
-function relevant_l33t_subtable( $password )
+# makes a pruned copy of l33t_table that only includes password's possible substitutions
+function relevent_l33t_subtable( $password )
 {
-    global $L33T_TABLE;
+    global $l33t_table;
 
-    $password_chars = array_unique( str_split( $password ) );
+    $password_chars = array();
+
+    foreach ( str_split( $password ) as $chr )
+    {
+        $password_chars[$chr] = TRUE;
+    };
 
     $filtered = array();
 
-    foreach ( $L33T_TABLE as $letter => $subs )
+    foreach ( $l33t_table as $letter => $subs )
     {
         $relevent_subs = array();
 
         foreach ( $subs as $sub )
         {
-            if ( in_array( $sub, $password_chars ) )
+            if ( isset( $password_chars[$sub] ) )
             {
                 $relevent_subs[] = $sub;
             };
         };
 
-        if ( count( $relevent_subs ) )
+        if ( ! empty( $relevent_subs ) )
         {
             $filtered[$letter] = $relevent_subs;
         };
@@ -190,9 +169,10 @@ function relevant_l33t_subtable( $password )
 };
 
 # returns the list of possible 1337 replacement dictionaries for a given password
-
 function enumerate_l33t_subs( $table )
 {
+    $keys = array_keys( $table );
+
     $subs = array( array() );
 
     $dedup = function( $subs )
@@ -202,11 +182,27 @@ function enumerate_l33t_subs( $table )
 
         foreach ( $subs as $sub )
         {
-            $key = implode( '', $sub[0] );
+            $assoc = array();
 
-            if ( ! isset( $members[$key] ) )
+            foreach ( $sub as $k => $v )
             {
-                $members[$key] = TRUE;
+                $assoc[] = array( $k, $v );
+            };
+
+            sort( $assoc, SORT_REGULAR );
+
+            $labels = array();
+
+            foreach ( $assoc as $a )
+            {
+                $labels[] = serialize( $a );
+            };
+
+            $label = implode( '-', $labels );
+
+            if ( ! isset( $members[$label] ) )
+            {
+                $members[$label] = TRUE;
                 $deduped[] = $sub;
             };
         };
@@ -214,10 +210,13 @@ function enumerate_l33t_subs( $table )
         return $deduped;
     };
 
-    $keys = array_keys( $table );
-
-    while ( count( $keys ) > 0 )
+    $helper = function( $keys ) use ( $table, &$subs, $dedup, &$helper )
     {
+        if ( empty( $keys ) )
+        {
+            return;
+        };
+
         $first_key = $keys[0];
         $rest_keys = array_slice( $keys, 1 );
         $next_subs = array();
@@ -228,22 +227,19 @@ function enumerate_l33t_subs( $table )
             {
                 $dup_l33t_index = -1;
 
-                $sub_length = count( $sub );
+                $sub_len = count( $sub );
 
-                if ( $sub_length > 0  )
+                for ( $i = 0; $i < $sub_len; $i++ )
                 {
-                    foreach ( range( 0, $sub_length ) as $i )
+                    if ( $sub[$i][0] === $l33t_chr )
                     {
-                        if ( isset( $sub[$i][0] ) && $sub[$i][0] === $l33t_chr )
-                        {
-                            $dup_l33t_index = $i;
+                        $dup_l33t_index = $i;
 
-                            break;
-                        };
+                        break;
                     };
                 };
 
-                if ( $dup_l33t_index == -1 )
+                if ( $dup_l33t_index === -1 )
                 {
                     $sub_extension = $sub;
                     $sub_extension[] = array( $l33t_chr, $first_key );
@@ -251,9 +247,9 @@ function enumerate_l33t_subs( $table )
                 }
                 else
                 {
-                    $sub_alternative = $sub;
+                    $sub_alternative = array_slice( $sub, 0 );
                     array_splice( $sub_alternative, $dup_l33t_index, 1 );
-                    $sub_alternative[] = array( $l33t_chr, $first_key );
+                    $sub_extension[] = array( $l33t_chr, $first_key );
                     $next_subs[] = $sub;
                     $next_subs[] = $sub_alternative;
                 };
@@ -261,10 +257,13 @@ function enumerate_l33t_subs( $table )
         };
 
         $subs = $dedup( $next_subs );
-        $keys = $rest_keys;
+
+        return $helper( $rest_keys );
     };
 
-    // convert from assoc lists to dicts.
+    $helper( $keys );
+
+    # convert from assoc lists to dicts
     $sub_dicts = array();
 
     foreach ( $subs as $sub )
@@ -284,9 +283,12 @@ function enumerate_l33t_subs( $table )
     return $sub_dicts;
 };
 
-function l33t_match( $password )
+
+$l33t_match = function( $password )
 {
     global $DICTIONARY_MATCHERS;
+
+    $matches = array();
     
     $sub_display = function( $match_sub )
     {
@@ -300,62 +302,61 @@ function l33t_match( $password )
         return implode( ', ', $pieces );
     };
 
-    $matches = array();
+    $l33t_subs = enumerate_l33t_subs( relevent_l33t_subtable( $password ) );
 
-    $subtable = relevant_l33t_subtable( $password );
-
-    if ( ! empty( $subtable ) )
+    foreach ( $l33t_subs as $sub )
     {
-        foreach ( enumerate_l33t_subs( $subtable ) as $sub )
+        # corner case: password has no relevent subs.
+        if ( empty( $sub ) )
         {
-            if ( count( $sub ) === 0 )
-            {
-                break;
-            };
+            break;
+        };
 
+        foreach ( $DICTIONARY_MATCHERS as $matcher )
+        {
             $subbed_password = translate( $password, $sub );
 
-            foreach ( $DICTIONARY_MATCHERS as $matcher )
+            $matched = $matcher( $subbed_password );
+
+            foreach ( $matched as $match )
             {
-                foreach ( $matcher( $subbed_password ) as $match )
+                $token = _slice( $password, $match['i'], $match['j'] + 1 );
+
+                # only return the matches that contain an actual substitution
+                if ( strtolower( $token ) === $match['matched_word'] )
                 {
-                    $token = substr( $password, $match['i'], $match['j'] + 1 );
-
-                    if ( strtolower( $token ) === $match['matched_word'] )
-                    {
-                        continue;
-                    };
-
-                    $match_sub = array();
-
-                    foreach ( $sub as $subbed_chr => $char )
-                    {
-                        if ( stristr( $token, $subbed_chr ) )
-                        {
-                            $match_sub[$subbed_chr] = $char;
-                        };
-                    };
-                    
-                    $match['l33t'] = TRUE;
-                    $match['token'] = $token;
-                    $match['sub'] = $match_sub;
-                    $match['sub_display'] = $sub_display( $match_sub );
-
-                    $matches[] = $match;
+                    continue;
                 };
+
+                # subset of mappings in sub that are in use for this match
+                $match_sub = array();
+                
+                foreach ( $sub as $subbed_chr => $chr )
+                {
+                    if ( _index_of( $token, ( string ) $subbed_chr ) !== -1 )
+                    {
+                        $match_sub[$subbed_chr] = $chr;
+                    };
+                };
+
+                $match['l33t'] = TRUE;
+                $match['token'] = $token;
+                $match['sub'] = $match_sub;
+                $match['sub_display'] = $sub_display( $match_sub );
+
+                $matches[] = $match;
             };
         };
-    }
-    
+    };
+
     return $matches;
 };
-
 
 # ------------------------------------------------------------------------------
 # spatial match (qwerty/dvorak/keypad) -----------------------------------------
 # ------------------------------------------------------------------------------
 
-function spatial_match( $password )
+$spatial_match = function( $password )
 {
     global $GRAPHS;
 
@@ -363,9 +364,9 @@ function spatial_match( $password )
 
     foreach ( $GRAPHS as $graph_name => $graph )
     {
-        $matches = array_merge( $matches, spatial_match_helper( $password, $graph, $graph_name ) );
+        extend( $matches, spatial_match_helper( $password, $graph, $graph_name ) );
     };
-    
+
     return $matches;
 };
 
@@ -374,7 +375,9 @@ function spatial_match_helper( $password, $graph, $graph_name )
     $result = array();
     $i = 0;
 
-    while ( $i < strlen( $password ) - 1 )
+    $password_len = strlen( $password );
+
+    while ( $i < $password_len - 1 )
     {
         $j = $i + 1;
         $last_direction = NULL;
@@ -383,26 +386,29 @@ function spatial_match_helper( $password, $graph, $graph_name )
 
         while ( TRUE )
         {
-            $prev_char = $password[$j-1];
+            $prev_char = _char_at( $password, $j - 1 );
             $found = FALSE;
             $found_direction = -1;
             $cur_direction = -1;
-            $adjacents = ( in_array( $prev_char, $graph ) ? $graph[$prev_char] : array() );
+            $adjacents = ( isset( $graph[$prev_char] ) ? $graph[$prev_char] : array() );
+            
             # consider growing pattern by one character if j hasn't gone over the edge.
-            if ( $j < strlen( $password ) )
+            if ( $j < $password_len )
             {
-                $cur_char = $password[$j];
+                $cur_chr = _char_at( $password, $j );
 
                 foreach ( $adjacents as $adj )
                 {
                     $cur_direction += 1;
 
-                    if ( $adj && stristr( $adj, $cur_char ) )
+                    $cur_chr_pos = _index_of( $adj, $cur_chr );
+
+                    if ( $adj && $cur_chr_pos !== -1 )
                     {
                         $found = TRUE;
                         $found_direction = $cur_direction;
 
-                        if ( strpos( $adj, $cur_char ) === 1 )
+                        if ( $cur_chr_pos === 1 )
                         {
                             # index 1 in the adjacency means the key is shifted, 0 means unshifted: A vs a, % vs 5, etc.
                             # for example, 'q' is adjacent to the entry '2@'. @ is shifted w/ index 1, 2 is unshifted.
@@ -425,10 +431,9 @@ function spatial_match_helper( $password, $graph, $graph_name )
             # if the current pattern continued, extend j and try to grow again
             if ( $found )
             {
-                $j += 1;
+                $j += 1; 
             }
-            # otherwise push the pattern discovered so far, if any...
-            else
+            else # otherwise push the pattern discovered so far, if any...
             {
                 if ( $j - $i > 2 ) # don't consider length 1 or 2 chains.
                 {
@@ -436,10 +441,10 @@ function spatial_match_helper( $password, $graph, $graph_name )
                         'pattern' => 'spatial',
                         'i' => $i,
                         'j' => $j - 1,
-                        'token' => substr( $password, $i, $j ),
+                        'token' => _slice( $password, $i, $j ),
                         'graph' => $graph_name,
                         'turns' => $turns,
-                        'shifted_count' => $shifted_count,
+                        'shifted_count' => $shifted_count
                     );
                 };
                 
@@ -458,60 +463,39 @@ function spatial_match_helper( $password, $graph, $graph_name )
 # repeats (aaa) and sequences (abcdef) -----------------------------------------
 #-------------------------------------------------------------------------------
 
-function repeat_match( $password )
+$repeat_match = function( $password )
 {
-    $groupby = function( $password )
+    $result = array();
+    $i = 0;
+
+    while ( $i < strlen( $password ) )
     {
-        $grouped = array();
+        $j = $i + 1;
 
-        $password_chars = str_split( $password );
-
-        $prev_char = NULL;
-        $index = NULL;
-
-        foreach ( $password_chars as $char )
+        while ( TRUE )
         {
-            if ( $prev_char === $char )
+            if ( _char_at( $password, $j - 1 ) === _char_at( $password, $j ) )
             {
-                $grouped[$index] .= $char;
+                $j += 1;
             }
             else
             {
-                $index = ( is_null( $index ) ? 0 : $index + 1 );
+                if ( $j - $i > 2 ) # don't consider length 1 or 2 chains.
+                {
+                    $result[] = array(
+                        'pattern' => 'repeat',
+                        'i' => $i,
+                        'j' => $j - 1,
+                        'token' => _slice( $password, $i, $j ),
+                        'repeated_char' => _char_at( $password, $i )
+                    );
+                };
 
-                $grouped[$index] = $char;
+                break;
             };
         };
 
-        return $grouped;
-    };
-
-    $result = array();
-    $repeats = $groupby( $password );
-    $i = 0;
-
-    foreach ( $repeats as $i => $group )
-    {
-        $group = str_split( $group );
-
-        $char = $group[0];
-
-        $length = count( $group );
-        
-        if ( $length > 2 )
-        {
-            $j = $i + $length - 1;
-
-            $result[] = array(
-                'pattern' => 'repeat',
-                'i' => $i,
-                'j' => $j,
-                'token' => substr( $password, $i, $j + 1 ),
-                'repeated_char' => $char,
-            );
-        };
-
-        $i += $length;
+        $i = $j;
     };
 
     return $result;
@@ -520,33 +504,32 @@ function repeat_match( $password )
 $SEQUENCES = array(
     'lower' => 'abcdefghijklmnopqrstuvwxyz',
     'upper' => 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
-   'digits' => '01234567890',
+    'digits' => '01234567890'
 );
 
-function sequence_match( $password )
+$sequence_match = function( $password ) use ( $SEQUENCES )
 {
-    global $SEQUENCES;
-
     $result = array();
     $i = 0;
-
+    
     while ( $i < strlen( $password ) )
     {
         $j = $i + 1;
-        $seq = NULL;           # either lower, upper, or digits
+        $seq = NULL; # either lower, upper, or digits
         $seq_name = NULL;
         $seq_direction = NULL; # 1 for ascending seq abcd, -1 for dcba
 
         foreach ( $SEQUENCES as $seq_candidate_name => $seq_candidate )
         {
-            $i_n = strpos( $seq_candidate, $password[$i] );
-            $j_n = ( $j < strlen( $password ) ? strpos( $seq_candidate, $password[$j] ) : -1 );
+            $i_n = _index_of( $seq_candidate, _char_at( $password, $i ) );
+            $j_n = _index_of( $seq_candidate, _char_at( $password, $j ) );
 
             if ( $i_n > -1 && $j_n > -1 )
             {
                 $direction = $j_n - $i_n;
 
-                if ( in_array( $direction, array( 1, -1 ) ) )
+                #if ( in_array( $direction, array( 1, -1 ) ) )
+                if ( $direction === 1 || $direction === ( -1 ) )
                 {
                     $seq = $seq_candidate;
                     $seq_name = $seq_candidate_name;
@@ -561,39 +544,38 @@ function sequence_match( $password )
         {
             while ( TRUE )
             {
-                if ( $j < strlen( $password ) )
-                {
-                    $prev_char = substr( $password, $j - 1 );
-                    $cur_char = substr( $password, $j );
+                $sliced = _slice( $password, $j - 1, $j + 1 );
+                $prev_chr = substr( $sliced, 0, 1 );
+                $cur_chr = substr( $sliced, 1, 1 );
 
-                    $prev_n = strpos( $seq_candidate, $prev_char );
-                    $cur_n = strpos( $seq_candidate, $cur_char );
-                };
+                $prev_n = _index_of( $seq_candidate, $prev_chr );
+                $cur_n = _index_of( $seq_candidate, $cur_chr );
 
-                if ( ( $j === strlen( $password ) ) || ( ( $cur_n - $prev_n ) !== $seq_direction ) )
+                if ( $cur_n - $prev_n === $seq_direction )
                 {
-                    if ( $j - $i > 2 ) # don't consider length 1 or 2 chains.
+                    $j += 1;
+                }
+                else
+                { 
+                    # don't consider length 1 or 2 chains.
+                    if ( $j - $i > 2 )
                     {
                         $result[] = array(
                             'pattern' => 'sequence',
                             'i' => $i,
                             'j' => $j - 1,
-                            'token' => substr( $password, $i, $j ),
+                            'token' => _slice( $password, $i, $j ),
                             'sequence_name' => $seq_name,
                             'sequence_space' => strlen( $seq ),
-                            'ascending' => ( $seq_direction === 1 ),
+                            'ascending' => ( $seq_direction === 1 )
                         );
                     };
 
                     break;
-                }
-                else
-                {
-                    $j += 1;
-                }
+                };
             };
         };
-
+        
         $i = $j;
     };
 
@@ -604,333 +586,315 @@ function sequence_match( $password )
 # digits, years, dates ---------------------------------------------------------
 #-------------------------------------------------------------------------------
 
-function match_all( $password, $pattern_name, $regex )
+function repeat( $chr, $n )
 {
-    $out = array();
+    return str_repeat( $chr, $n );
+};
 
-    preg_match_all( $regex, $password, $matches, PREG_PATTERN_ORDER );
+function findall( $password, $rx )
+{
+    $matches = array();
 
-    if ( isset( $matches[1] ) )
+    while ( TRUE )
     {
-        foreach ( $matches[1] as $match )
-        {
-            $i = strpos( $match );
-            $j = $i + strlen( $match );
+        $count = preg_match_all( $rx, $password, $captures );
 
-            $out[] = array(
-                'pattern' => $pattern_name,
-                'i' => $i,
-                'j' => $j,
-                'token' => substr( $password, $i, $j + 1 ),
-            );
+        if ( ! $count )
+        {
+            break;
+        };
+
+        for ( $i = 0; $i < $count; $i++ )
+        {   
+            $match = array();
+
+            foreach ( $captures as $m )
+            {
+                $match[] = $m[$i];
+            };
+
+            $match['index'] = strpos( $password, $match[0] );
+            $match['input'] = $password;
+            $match['length'] = strlen( $match[0] );
+
+            $match['i'] = $match['index'];
+            #$match['j'] = $match['length'];  
+            $match['j'] = $match['index'] + ( $match['length'] - 1 );
+
+            $matches[] = $match;
+
+            $password = str_replace( $match[0], repeat( ' ', $match['length'] ), $password );
         };
     };
 
-    return $out;
+    return $matches;
 };
 
+$digits_rx = '/(\d{3,})/';
 
-$DIGITS_MATCH = '/\d{3,}/';
-function digits_match( $password )
+$digits_match = function( $password ) use ( $digits_rx )
 {
-    global $DIGITS_MATCH;
+    $results = array();
 
-    return match_all( $password, 'digits', $DIGITS_MATCH );
+    foreach ( findall( $password, $digits_rx ) as $match )
+    {
+        $i = $match['i'];
+        $j = $match['j'];
+
+        $results[] = array(
+            'pattern' => 'digits',
+            'i' => $i,
+            'j' => $j,
+            'token' => _slice( $password, $i, $j + 1 )
+        );
+    };
+
+    return $results;
 };
 
-$YEAR_MATCH = '/19\d\d|200\d|201\d/';
-function year_match( $password )
+# 4-digit years only. 2-digit years have the same entropy as 2-digit brute force.
+$year_rx = '/(19\d\d|200\d|201\d)/';
+
+$year_match = function( $password ) use ( $year_rx )
 {
-    global $YEAR_MATCH;
+    $results = array();
 
-    return match_all( $password, 'year', $YEAR_MATCH );
+    foreach ( findall( $password, $year_rx ) as $match )
+    {
+        $i = $match['i'];
+        $j = $match['j'];
+
+        $results[] = array(
+            'pattern' => 'year',
+            'i' => $i,
+            'j' => $j,
+            'token' => _slice( $password, $i, $j + 1 )
+        );
+    };
+
+    return $results;
 };
 
-function date_match( $password )
+$date_match = function( $password )
 {
-    $l = date_without_sep_match( $password );
-    $l[] = date_sep_match( $password );
-
-    return $l;
+    # match dates with separators 1/1/1911 and dates without 111997
+    return array_merge( 
+        date_without_sep_match( $password ),
+        date_sep_match( $password )
+    );
 };
 
-$DATE_WITHOUT_SEP_MATCH = '/\d{4,8}/';
 function date_without_sep_match( $password )
 {
-    global $DATE_WITHOUT_SEP_MATCH;
-
     $date_matches = array();
-    
-    $found = preg_match_all( $DATE_WITHOUT_SEP_MATCH, $password, $matches, PREG_OFFSET_CAPTURE );
 
-    if ( $found && isset( $matches[0] ) )
+    # 1197 is length-4, 01011997 is length 8
+    foreach ( findall( $password, '/(\d{4,8})/' ) as $digit_match )
     {
-        foreach ( $matches[0] as $digit_match )
+        $i = $digit_match['i'];
+        $j = $digit_match['j'];
+
+        $token = _slice( $password, $j, $j + 1 );
+        $token_len = strlen( $token );
+
+        # parse year alternatives
+        $candidates_round_1 = array();
+
+        if ( $token_len <= 6 )
         {
-            list( $token, $offset ) = $digit_match;
+            $candidates_round_1[] = array(
+                'daymonth' => _slice( $token, 2 ),
+                'year' => _slice( $token, 0, 2 ),
+                'i' => $i,
+                'j' => $j
+            );
 
-            // position of match.
-            $token_length = strlen( $token );
-            $i = $offset;
-            $j = $token_length;
+            $candidates_round_1[] = array(
+                'daymonth' => _slice( $token, 0, ( $token_len - 2 ) ),
+                'year' => _slice( $token, ( $token_len - 2 ) ),
+                'i' => $i,
+                'j' => $j
+            );
+        };
 
-            $candidates_round_1 = array(); # parse year alternatives
+        if ( $token_len >= 6 )
+        {
+            $candidates_round_1[] = array(
+                'daymonth' => _slice( $token, 4 ),
+                'year' => _slice( $token, 0, 4 ),
+                'i' => $i,
+                'j' => $j
+            );
 
-            if ( $token_length <= 6 )
+            $candidates_round_1[] = array(
+                'daymonth' => _slice( $token, 0, ( $token_len - 4 ) ),
+                'year' => _slice( $token, ( $token_len - 4 ) ),
+                'i' => $i,
+                'j' => $j
+            );
+        };
+        
+        # parse day/month alternatives
+        $candidates_round_2 = array();
+
+        foreach ( $candidates_round_1 as $candidate )
+        {
+            switch ( strlen( $candidate['daymonth'] ) )
             {
-                # 2-digit year prefix
-                $candidates_round_1[] = array(
-                    'daymonth' => substr( $token, 2 ),
-                    'year' => substr( $token, 0, 2 ),
-                    'i' => $i,
-                    'j' => $j,
-                );
-
-                # 2-digit year suffix
-                $candidates_round_1[] = array(
-                    'daymonth' => substr( $token, 0, $token_length - 2 ),
-                    'year' => substr( $token, $token_length - 2 ),
-                    'i' => $i,
-                    'j' => $j,
-                );
-            };
-
-            if ( $token_length >= 6 )
-            {
-                # 4-digit year prefix
-                $candidates_round_1[] = array(
-                    'daymonth' => substr( $token, 4 ),
-                    'year' => substr( $token, 0, 4 ),
-                    'i' => $i,
-                    'j' => $j,
-                );
-
-                # 4-digit year suffix
-                $candidates_round_1[] = array(
-                    'daymonth' => substr( $token, 0, $token_length - 4 ),
-                    'year' => substr( $token, $token_length - 4 ),
-                    'i' => $i,
-                    'j' => $j,
-                );
-            };
-
-            $candidates_round_2 = array(); # parse day/month alternatives
-
-            foreach ( $candidates_round_1 as $candidate )
-            {
-                $daymonth_length = strlen( $candidate['daymonth'] );
-
-                if ( $daymonth_length === 2 ) # ex. 1 1 97
-                {
+                case 2: # ex. 1 1 97
                     $candidates_round_2[] = array(
-                        'day' => substr( $candidate['daymonth'], 0, 1 ),
-                        'month' => substr( $candidate['daymonth'], 1, 1 ),
+                        'day' => _char_at( $candidate['daymonth'], 0 ),
+                        'month' => _char_at( $candidate['daymonth'], 1 ),
                         'year' => $candidate['year'],
                         'i' => $candidate['i'],
-                        'j' => $candidate['j'],
+                        'j' => $candidate['j']
                     );
-                }
-                elseif ( $daymonth_length === 3 ) # ex. 11 1 97 or 1 11 97
-                {
+                    break;
+                case 3: # ex. 11 1 97 or 1 11 97
                     $candidates_round_2[] = array(
-                        'day' => substr( $candidate['daymonth'], 0, 2 ),
-                        'month' => substr( $candidate['daymonth'], 2, 1 ),
+                        'day' => _slice( $candidate['daymonth'], 0, 2 ),
+                        'month' => _char_at( $candidate['daymonth'], 2 ),
                         'year' => $candidate['year'],
                         'i' => $candidate['i'],
-                        'j' => $candidate['j'],
+                        'j' => $candidate['j']
                     );
-
                     $candidates_round_2[] = array(
-                        'day' => substr( $candidate['daymonth'], 0, 1 ),
-                        'month' => substr( $candidate['daymonth'], 1, 2 ),
+                        'day' => _char_at( $candidate['daymonth'], 0 ),
+                        'month' => _slice( $candidate['daymonth'], 1, 3 ),
                         'year' => $candidate['year'],
                         'i' => $candidate['i'],
-                        'j' => $candidate['j'],
+                        'j' => $candidate['j']
                     );
-                    
-                }
-                elseif ( $daymonth_length === 4 ) # ex. 11 11 97
-                {
+                    break;
+                case 4: # ex. 11 11 97
                     $candidates_round_2[] = array(
-                        'day' => substr( $candidate['daymonth'], 0, 2 ),
-                        'month' => substr( $candidate['daymonth'], 2, 2 ),
+                        'day' => _slice( $candidate['daymonth'], 0, 2 ),
+                        'month' => _slice( $candidate['daymonth'], 2, 4 ),
                         'year' => $candidate['year'],
                         'i' => $candidate['i'],
-                        'j' => $candidate['j'],
+                        'j' => $candidate['j']
                     );
-                };
+                    break;
             };
+        };
 
-            # final loop: reject invalid dates
-            foreach ( $candidates_round_2 as $candidate )
+        # final loop: reject invalid dates
+        foreach ( $candidates_round_2 as $candidate )
+        {
+            $day = ( integer ) $candidate['day'];
+            $month = ( integer ) $candidate['month'];
+            $year = ( integer ) $candidate['year'];
+
+            list( $valid, $date ) = check_date( $day, $month, $year );
+            
+            if ( ! $valid )
             {
-                if ( ! isset( $candidate['day'], $candidate['month'], $candidate['year'] ) )
-                {
-                    continue;
-                };
-
-                $day = ( integer ) $candidate['day'];
-                $month = ( integer ) $candidate['month'];
-                $year = ( integer ) $candidate['year'];
-
-                list( $valid, list( $day, $month, $year ) ) = check_date( $day, $month, $year );
-
-                if ( ! $valid )
-                {
-                    continue;
-                };
-
-                $date_matches[] = array(
-                    'pattern' => 'date',
-                    'i' => $candidate['i'],
-                    'j' => $candidate['j'],
-                    'token' => $token,
-                    'separator' => '',
-                    'day' => $day,
-                    'month' => $month,
-                    'year' => $year,
-                );
+                continue;
             };
+
+            list( $day, $month, $year ) = $date;
+
+            $date_matches[] = array(
+                'pattern' => 'date',
+                'i' => $candidate['i'],
+                'j' => $candidate['j'],
+                'token' => _slice( $password, $i, $j + 1 ),
+                'separator' => '',
+                'day' => $day,
+                'month' => $month,
+                'year' => $year
+            );
         };
     };
 
     return $date_matches;
 };
 
-$DATE_RX_YEAR_SUFFIX = '~(\d{1,2})(\s|-|/|\\|_|\.)(\d{1,2})\2(19\d{2}|200\d|201\d|\d{2})~';
-#$DATE_RX_YEAR_SUFFIX = '/(\d{1,2})(\s|-|/|\\|_|\.)/';
-$DATE_RX_YEAR_PREFIX = '~(19\d{2}|200\d|201\d|\d{2})(\s|-|/|\\|_|\.)(\d{1,2})\2(\d{1,2})~';
+$date_rx_year_suffix = '/(\d{1,2})(\s|-|\/|\\|_|\.)(\d{1,2})\2(19\d{2}|200\d|201\d|\d{2})/';
+
+$date_rx_year_prefix = '/(19\d{2}|200\d|201\d|\d{2})(\s|-|\/|\\|_|\.)(\d{1,2})\2(\d{1,2})/';
 
 function date_sep_match( $password )
 {
-    global $DATE_RX_YEAR_SUFFIX, $DATE_RX_YEAR_PREFIX;
+    global $date_rx_year_suffix, $date_rx_year_prefix;
 
     $matches = array();
-
-    $found = preg_match_all( $DATE_RX_YEAR_SUFFIX, $password, $suffix, PREG_OFFSET_CAPTURE );
-
-    if ( $found && isset( $suffix ) )
+    
+    foreach ( findall( $password, $date_rx_year_suffix ) as $match )
     {
-        for ( $i = 0; $i < $found; $i++ )
-        {
-            $matches[] = array(
-                'day'   => ( integer ) $suffix[1][$i][0],
-                'month' => ( integer ) $suffix[3][$i][0],
-                'year'  => ( integer ) $suffix[4][$i][0],
-                'sep'   => $suffix[2][$i][0],
-                'i'     => $suffix[0][$i][1],
-                'j'     => $suffix[0][$i][1] + ( strlen( $suffix[0][$i][0] ) ),
-            );
-        };
+        $match['day'] = ( integer ) $match[1];
+        $match['month'] = ( integer ) $match[3];
+        $match['year'] = ( integer ) $match[4];
+        $match['sep'] = $match[2];
+
+        $matches[] = $match;
+    };
+    
+    foreach ( findall( $password, $date_rx_year_prefix ) as $match )
+    {
+        $match['day'] = ( integer ) $match[4];
+        $match['month'] = ( integer ) $match[3];
+        $match['year'] = ( integer ) $match[1];
+        $match['sep'] = $match[2];
+
+        $matches[] = $match;
     };
 
-    $found = preg_match_all( $DATE_RX_YEAR_PREFIX, $password, $prefix, PREG_OFFSET_CAPTURE );
-
-    if ( $found && isset( $prefix ) )
-    {
-        for ( $i = 0; $i < $found; $i++ )
-        {
-            $matches[] = array(
-                'day'   => ( integer ) $prefix[4][$i][0],
-                'month' => ( integer ) $prefix[3][$i][0],
-                'year'  => ( integer ) $prefix[1][$i][0],
-                'sep'   => $prefix[2][$i][0],
-                'i'     => $prefix[0][$i][1],
-                'j'     => $prefix[0][$i][1] + ( strlen( $prefix[0][$i][0] ) ),
-            );
-        };
-    };
-
-    $date_matches = array();
+    $results = array();
 
     foreach ( $matches as $match )
     {
-        list( $valid, list( $day, $month, $year ) ) = check_date( $match['day'], $match['month'], $match['year'] );
-
+        list( $valid, $date ) = check_date( 
+                                    $match['day'], 
+                                    $match['month'], 
+                                    $match['year'] 
+                                );
+        
         if ( ! $valid )
         {
             continue;
         };
 
-        $date_matches[] = array(
+        list( $day, $month, $year ) = $date;
+
+        $i = $match['i'];
+        $j = $match['j'];
+
+        $results[] = array(
             'pattern' => 'date',
-            'i' => $match['i'],
-            'j' => $match['j'] - 1,
-            'token' => substr( $password, $match['i'], $match['j'] ),
+            'i' => $i,
+            'j' => $j,
+            'token' => _slice( $password, $i, $j + 1 ),
             'separator' => $match['sep'],
             'day' => $day,
             'month' => $month,
-            'year' => $year,
+            'year' => $year
         );
     };
 
-    return $date_matches;
+    return $results;
 };
 
 function check_date( $day, $month, $year )
 {
-    // tolerate both day-month and month-day order.
-    if ( 12 <= $month && $month <= 31 && $day <= 12 )
+    # tolerate both day-month and month-day order
+    if ( ( 12 <= $month && $month <= 31 ) && $day <= 12 )
     {
-        $day = $month; 
+        $m = $month;
         $month = $day;
+        $day = $m;
     };
 
     if ( $day > 31 || $month > 12 )
     {
-        return array( FALSE, array( 0, 0, 0 ) );
+        return array( FALSE, array() );
     };
 
-    if ( ! ( 1900 <= $year && $year <= 2019 ) )
+    if ( ! ( ( 1900 <= $year && $year <= 2019 ) ) )
     {
-        return array( FALSE, array( 0, 0, 0 ) );
-    };
+        return array( FALSE, array() );
+    }
 
     return array( TRUE, array( $day, $month, $year ) );
-};
-
-
-$MATCHERS = $DICTIONARY_MATCHERS;
-$MATCHERS = array_merge( $MATCHERS, array(
-    'l33t_match',
-    'digits_match', 'year_match', 'date_match',
-    'repeat_match', 'sequence_match',
-    'spatial_match'
-) );
-
-function omnimatch( $password, $user_inputs = array() )
-{
-    global $MATCHERS;
-
-    $ranked_user_inputs_dict = array();
-
-    foreach ( $user_inputs as $i => $user_input )
-    {
-        $ranked_user_inputs_dict[strtlower( $user_input )] = $i + 1;
-    };
-
-    $user_input_matcher = _build_dict_matcher( 'user_inputs', $ranked_user_inputs_dict );
-    $matches = $user_input_matcher( $password );
-
-    foreach ( $MATCHERS as $matcher )
-    {
-        $result = $matcher( $password );
-
-        $matches = array_merge( $matches, $result );
-    };
-
-    $compare_function = function( $a, $b )
-    {
-        if ( ! isset( $a['i'], $b['i'], $a['j'], $b['j'] ) )
-        {
-            return 0;
-        };
-
-        return ( $a['i'] - $b['i'] ) || ( $a['j'] - $b['j'] );
-    };
-
-    usort( $matches, $compare_function );
-
-    return $matches;
 };
 ?>

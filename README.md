@@ -9,4 +9,4 @@ NB: This is Quick 'n Dirty Port<sup>TM</sup> to PHP, as a starting point so I co
 understand how zxcvbn worked. You probably don't want to use this with production code, yet.
 
 To see it in action, run:
-`php example.php` 
+`php test.php` 

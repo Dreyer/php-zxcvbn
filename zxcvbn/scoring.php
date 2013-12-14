@@ -83,9 +83,6 @@ function minimum_entropy_match_sequence( $password, $matches )
                 $up_to_k[$j] = $candidate_entropy;
                 $backpointers[$j] = $match;
             };
-
-            #var_dump( $match['pattern'] . '(' . $match['token'] . ') => ' . $match['entropy'] );
-            #var_dump( $match );
         };
     };
 

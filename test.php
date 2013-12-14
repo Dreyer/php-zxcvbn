@@ -12,9 +12,6 @@
 
     foreach ( $passwords as $password )
     {
-        #if ( $password['input'] !== 'coRrecth0rseba++ery9.23.2007staple$' ) continue;
-        #END (pass: 34 / fail: 1)..
-
         echo 'INPUT: ' . $password['input'] . PHP_EOL;
 
         $zxcvbn = zxcvbn( $password['input'] );
@@ -35,7 +32,10 @@
                 $comparison
             );
 
-            if ( $diff ) $OK = FALSE;
+            if ( $diff )
+            {
+                $OK = FALSE;
+            };
         };
 
         if ( $OK )
